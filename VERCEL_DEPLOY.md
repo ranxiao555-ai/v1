@@ -9,16 +9,11 @@
 
 ## 数据存储方式
 
-云端版本不再使用本地 SQLite 保存共享数据。
+云端版本不使用本地 SQLite 保存共享数据。
 
-部署后所有业务数据写入 PostgreSQL 云数据库，由环境变量 `DATABASE_URL` 指定。
+部署后所有业务数据写入 Neon PostgreSQL 云数据库，由环境变量 `DATABASE_URL` 指定。
 
-支持的云数据库：
-
-- Neon PostgreSQL
-- Supabase PostgreSQL
-- Vercel Postgres
-- Railway PostgreSQL
+推荐使用 Neon 的 `Pooled connection` 连接字符串。
 
 ## 必填环境变量
 
@@ -42,13 +37,17 @@ pnpm install
 vercel
 ```
 
-首次访问时，系统会自动创建这些 PostgreSQL 表：
+首次访问任意 `/api/...` 接口时，系统会自动创建这些 PostgreSQL 表：
 
 - `salespeople`
 - `products`
-- `sales`
 - `salesperson_targets`
+- `gold_targets`
+- `targets`
+- `sales`
 - `pending_items`
+
+可以访问 `/api/db-check` 验证数据库连接和建表状态。
 
 ## 多人共享结论
 
@@ -65,4 +64,3 @@ vercel
 - Excel 导入模板由接口即时生成，不依赖本地 `exports/`
 - `.xlsx` 完整支持
 - 老式二进制 `.xls` 建议先另存为 `.xlsx`
-

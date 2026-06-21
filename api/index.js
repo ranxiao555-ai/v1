@@ -4,10 +4,36 @@ const XLSX = require("xlsx");
 
 module.exports.config = { api: { bodyParser: false } };
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
-});
+let pool;
+
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_PRISMA_URL ||
+    "";
+}
+
+function getDatabaseUrlSource() {
+  for (const key of ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_URL_NON_POOLING", "POSTGRES_PRISMA_URL"]) {
+    if (process.env[key]) return key;
+  }
+  return "";
+}
+
+function getPool() {
+  const connectionString = getDatabaseUrl();
+  if (!connectionString) {
+    throw new Error("缺少 Neon PostgreSQL 连接字符串。请在 Vercel 环境变量中配置 DATABASE_URL，或使用 Neon/Vercel 集成自动生成的 POSTGRES_URL。");
+  }
+  if (!pool) {
+    pool = new Pool({
+      connectionString,
+      ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
+    });
+  }
+  return pool;
+}
 
 const SALES_HEADERS = ["日期", "业务员", "客户名称", "商品编码", "商品名称", "销售数量", "单价", "销售金额"];
 const BASE_CONFIG = {
@@ -21,10 +47,10 @@ let schemaReady = false;
 
 async function ensureSchema() {
   if (schemaReady) return;
-  if (!process.env.DATABASE_URL) {
-    throw new Error("缺少 DATABASE_URL。请在 Vercel 项目环境变量中配置 PostgreSQL 连接字符串。");
+  if (!getDatabaseUrl()) {
+    throw new Error("缺少 Neon PostgreSQL 连接字符串。请在 Vercel 环境变量中配置 DATABASE_URL，或使用 Neon/Vercel 集成自动生成的 POSTGRES_URL。");
   }
-  await pool.query(`
+  await getPool().query(`
     CREATE TABLE IF NOT EXISTS salespeople (
       id SERIAL PRIMARY KEY,
       code TEXT,
@@ -58,6 +84,24 @@ async function ensureSchema() {
       UNIQUE(month, salesperson_name)
     );
 
+    CREATE TABLE IF NOT EXISTS gold_targets (
+      id SERIAL PRIMARY KEY,
+      month TEXT NOT NULL,
+      salesperson_name TEXT NOT NULL,
+      target_qty NUMERIC NOT NULL DEFAULT 0,
+      UNIQUE(month, salesperson_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS targets (
+      id SERIAL PRIMARY KEY,
+      month TEXT NOT NULL,
+      salesperson_name TEXT NOT NULL,
+      product_code TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      target_qty NUMERIC NOT NULL DEFAULT 0,
+      UNIQUE(month, salesperson_name, product_code)
+    );
+
     CREATE TABLE IF NOT EXISTS sales (
       id SERIAL PRIMARY KEY,
       sale_date TEXT NOT NULL,
@@ -81,6 +125,11 @@ async function ensureSchema() {
       status TEXT NOT NULL DEFAULT '待确认',
       created_at TEXT NOT NULL
     );
+
+    CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date);
+    CREATE INDEX IF NOT EXISTS idx_sales_salesperson ON sales(salesperson_name);
+    CREATE INDEX IF NOT EXISTS idx_sales_product_code ON sales(product_code);
+    CREATE INDEX IF NOT EXISTS idx_products_is_key ON products(is_key);
   `);
   schemaReady = true;
 }
@@ -179,7 +228,7 @@ async function readUploadFile(req) {
 }
 
 async function query(sql, params = []) {
-  const result = await pool.query(sql, params);
+  const result = await getPool().query(sql, params);
   return result.rows;
 }
 
@@ -272,7 +321,7 @@ async function productStats(period, selected, keyword, keyOnly) {
 
 async function goldRank(month, selected, salesperson) {
   const days = monthDays(month);
-  const params = [month, selected, `${month}-01`, selected];
+  const params = [selected, `${month}-01`, selected];
   let where = "";
   if (salesperson) {
     params.push(salesperson);
@@ -287,20 +336,49 @@ async function goldRank(month, selected, salesperson) {
            COALESCE(month_sales.qty,0)::float AS "累计完成",
            CASE WHEN COALESCE(gt.qty,0)=0 THEN 0 ELSE (COALESCE(month_sales.qty,0)/gt.qty)::float END AS "累计完成率"
     FROM salespeople sp
-    LEFT JOIN (SELECT salesperson_name, SUM(target_qty) qty FROM gold_targets WHERE month=$1 GROUP BY salesperson_name) gt ON gt.salesperson_name=sp.name
+    LEFT JOIN (
+      SELECT COALESCE(SUM(gold_target),0) qty
+      FROM products
+      WHERE is_key=1 AND COALESCE(status,'启用')='启用'
+    ) gt ON TRUE
     LEFT JOIN (
       SELECT s.salesperson_name, SUM(s.quantity) qty FROM sales s
       JOIN products p ON p.code=s.product_code AND p.is_key=1 AND COALESCE(p.status,'启用')='启用'
-      WHERE s.sale_date=$2 GROUP BY s.salesperson_name
+      WHERE s.sale_date=$1 GROUP BY s.salesperson_name
     ) day_sales ON day_sales.salesperson_name=sp.name
     LEFT JOIN (
       SELECT s.salesperson_name, SUM(s.quantity) qty FROM sales s
       JOIN products p ON p.code=s.product_code AND p.is_key=1 AND COALESCE(p.status,'启用')='启用'
-      WHERE s.sale_date BETWEEN $3 AND $4 GROUP BY s.salesperson_name
+      WHERE s.sale_date BETWEEN $2 AND $3 GROUP BY s.salesperson_name
     ) month_sales ON month_sales.salesperson_name=sp.name
     ${where}
     ORDER BY "今日完成率" DESC, "累计完成率" DESC
   `, params);
+}
+
+async function dbCheck() {
+  const tables = ["salespeople", "products", "salesperson_targets", "gold_targets", "targets", "sales", "pending_items"];
+  const tableStatus = await query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema='public' AND table_name = ANY($1)
+  `, [tables]);
+  const existing = tableStatus.map((row) => row.table_name);
+  const counts = {};
+  for (const table of tables) {
+    if (existing.includes(table)) {
+      counts[table] = Number((await query(`SELECT COUNT(*)::int AS count FROM ${table}`))[0].count);
+    }
+  }
+  return {
+    ok: true,
+    database: "connected",
+    provider: "Neon PostgreSQL",
+    env: getDatabaseUrlSource(),
+    schemaReady: tables.every((table) => existing.includes(table)),
+    tables: existing,
+    counts
+  };
 }
 
 async function maintenanceData() {
@@ -318,7 +396,7 @@ async function saveMaintenance(req, res) {
   const body = await parseJson(req);
   const table = body.table;
   const records = body.records || [];
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
     if (table === "salespeople") {
@@ -376,7 +454,7 @@ async function importMaintenance(req, res, type) {
   let success = 0;
   try {
     const rows = workbookRows(buffer, config.headers);
-    const client = await pool.connect();
+    const client = await getPool().connect();
     try {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -459,7 +537,7 @@ async function uploadSales(req, res, url) {
   if (existing.length && !["merge", "replace"].includes(mode)) {
     return json(res, 409, { duplicate: true, message: "检测到相同日期已有销售数据，请选择覆盖或合并。", dates: existing });
   }
-  const client = await pool.connect();
+  const client = await getPool().connect();
   const newSalespeople = [];
   const newProducts = [];
   try {
@@ -501,6 +579,7 @@ async function main(req, res) {
     await ensureSchema();
     const url = parseUrl(req);
     const path = url.pathname.replace(/^\/api/, "") || "/";
+    if (req.method === "GET" && path === "/db-check") return json(res, 200, await dbCheck());
     if (req.method === "GET" && path === "/dashboard") return apiDashboard(req, res, url);
     if (req.method === "GET" && path === "/sales-ranking") return json(res, 200, await salesRank(url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || ""));
     if (req.method === "GET" && path === "/gold-rank") return json(res, 200, await goldRank(url.searchParams.get("month") || new Date().toISOString().slice(0, 7), url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || ""));

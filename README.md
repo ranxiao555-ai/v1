@@ -1,63 +1,161 @@
 # 销售管理系统 V1.1
 
-本项目是一个本地可运行的销售统计网页系统，支持上传每日销售明细 Excel，并自动生成：
+这是一个可部署到 Vercel 的销售管理系统。前端使用静态页面，后端使用 Vercel Serverless Function，数据永久保存到 Neon PostgreSQL。
 
+## 当前功能
+
+- 上传销售明细 Excel
+- 自动识别新业务员、新商品，并加入待确认数据池
 - 今日销售概览
-- 业务销售排行：今日销售金额、本月销售金额、巅峰目标、每日目标、完成率
-- 商品销售统计和排名
+- 业务销售排行
+- 商品销售排行
 - 金砖商品完成率排行
-- 金砖商品未达标提醒
+- 基础数据维护：业务员、商品、金砖商品、销售目标
+- 基础数据 Excel 模板下载、批量导入、导出当前数据
 - 各统计表 Excel 导出
-- 业务员、商品、销售目标、金砖目标基础数据维护
-- 自动识别新业务员、新商品，并进入待确认数据池
+- 自动创建 PostgreSQL 数据表
 
-## 技术方案
+## 技术架构
 
-- 后端：Python 标准库 HTTP Server
-- 数据库：SQLite
-- Excel 读取/导出：openpyxl
-- 前端：原生 HTML/CSS/JavaScript
+- 前端：`public/index.html` + `public/static/app.js` + `public/static/styles.css`
+- 后端：`api/index.js`
+- 部署：Vercel
+- 数据库：Neon PostgreSQL
+- Excel：`xlsx`
+- 数据库驱动：`pg`
 
-## 运行步骤
+系统启动任意 API 时会自动执行数据库初始化，自动创建以下数据表：
 
-在项目目录执行：
+- `salespeople`：业务员资料
+- `products`：商品资料、金砖商品标记、金砖目标
+- `salesperson_targets`：业务销售目标
+- `gold_targets`：预留的按月金砖目标表
+- `targets`：预留的业务员 + 商品 + 月份任务表
+- `sales`：销售明细上传数据
+- `pending_items`：待确认数据池
+
+## 本地运行
+
+先安装依赖：
 
 ```bash
-./run.sh
+npm install
 ```
 
-启动后打开：
-
-```text
-http://127.0.0.1:8000
-```
-
-如果 8000 端口被占用，可以指定端口：
+本地需要配置 Neon PostgreSQL 连接字符串：
 
 ```bash
-PORT=8010 ./run.sh
+export DATABASE_URL="postgresql://用户名:密码@主机/dbname?sslmode=require"
+npm run dev
 ```
 
-## 测试数据
-
-首次启动会自动生成模拟数据：
-
-- 5 个业务员
-- 100 个商品
-- 其中 10 个金砖商品
-- 最近 30 天销售明细
-- 每个业务员都有销售目标：巅峰目标、每日目标
-- 每个业务员都有本月金砖商品目标
-
-同时会生成一份可上传的测试 Excel：
+打开：
 
 ```text
-exports/模拟销售明细_最近30天.xlsx
+http://localhost:3000
 ```
 
-页面上的“销售明细上传”页也提供下载入口。
+检查数据库连接：
 
-## Excel 上传字段
+```text
+http://localhost:3000/api/db-check
+```
+
+如果返回 `ok: true`，说明数据库连接成功，并且数据表已经自动创建。
+
+## Neon 创建步骤
+
+1. 打开 [Neon 控制台](https://console.neon.tech/)。
+2. 点击 `New Project`。
+3. 填写项目名称，例如 `sales-report-v1`。
+4. 选择 PostgreSQL 版本，默认即可。
+5. 选择数据库区域，建议选择离用户近的区域。
+6. 创建完成后，进入项目的 `Dashboard`。
+7. 找到 `Connection string`。
+8. 选择 `Pooled connection`。
+9. 复制形如下面的连接字符串：
+
+```text
+postgresql://user:password@ep-xxxx-pooler.region.aws.neon.tech/neondb?sslmode=require
+```
+
+Neon 只需要创建一个 Project 和一个 Database。表不需要手动创建，系统会在第一次访问 API 时自动创建。
+
+## Vercel 环境变量
+
+在 Vercel 项目中配置：
+
+| 变量名 | 必填 | 说明 |
+| --- | --- | --- |
+| `DATABASE_URL` | 是 | Neon PostgreSQL 连接字符串，推荐使用 Pooled connection |
+| `PGSSLMODE` | 否 | 默认不需要填。代码默认启用 SSL；只有本地特殊情况才设为 `disable` |
+
+代码也兼容 Neon/Vercel 集成自动生成的这些变量：
+
+- `POSTGRES_URL`
+- `POSTGRES_URL_NON_POOLING`
+- `POSTGRES_PRISMA_URL`
+
+但推荐统一手动配置 `DATABASE_URL`，最清楚。
+
+## Vercel 配置步骤
+
+1. 打开 [Vercel Dashboard](https://vercel.com/dashboard)。
+2. 点击你的销售系统项目。
+3. 点击顶部或左侧的 `Settings`。
+4. 点击 `Environment Variables`。
+5. 在 `Name` 输入 `DATABASE_URL`。
+6. 在 `Value` 粘贴 Neon 的 Pooled connection string。
+7. 环境选择 `Production`、`Preview`、`Development`，建议三个都勾选。
+8. 点击 `Save`。
+9. 点击 `Deployments`。
+10. 找到最新一次部署，点击右侧三个点。
+11. 点击 `Redeploy`。
+12. 确认重新部署。
+
+如果你的 Vercel 项目已经绑定 GitHub，本仓库推送后也会自动触发重新部署。
+
+## 验证数据库连接成功
+
+部署完成后，访问：
+
+```text
+https://你的域名/api/db-check
+```
+
+成功时会看到类似：
+
+```json
+{
+  "ok": true,
+  "database": "connected",
+  "provider": "Neon PostgreSQL",
+  "env": "DATABASE_URL",
+  "schemaReady": true,
+  "tables": ["salespeople", "products", "salesperson_targets", "gold_targets", "targets", "sales", "pending_items"],
+  "counts": {
+    "salespeople": 0,
+    "products": 0,
+    "sales": 0
+  }
+}
+```
+
+如果仍然提示缺少连接字符串，请检查：
+
+- Vercel 环境变量名称必须是 `DATABASE_URL`
+- 是否粘贴到了当前项目，而不是其他项目
+- 是否勾选了 `Production`
+- 修改环境变量后是否重新部署
+- Neon 连接字符串是否包含 `sslmode=require`
+
+## 上传销售 Excel
+
+销售明细上传模板地址：
+
+```text
+/api/sales-template
+```
 
 上传文件必须包含以下列：
 
@@ -70,54 +168,41 @@ exports/模拟销售明细_最近30天.xlsx
 - 单价
 - 销售金额
 
-如果“销售金额”为空，系统会自动计算：
+如果销售金额为空，系统会自动计算：
 
 ```text
 销售金额 = 销售数量 × 单价
 ```
 
-## 重复上传规则
+导入成功后，数据会写入 Neon PostgreSQL 的 `sales` 表，刷新页面、换电脑、换手机访问都会看到同一套数据。
 
-如果上传文件里的日期已经存在销售数据，系统会提示：
+## 数据读取说明
 
-- 覆盖：删除这些日期的旧数据，再导入新数据
-- 合并：保留旧数据，追加导入新数据
+- 业务销售排行读取 `sales`、`salespeople`、`salesperson_targets`
+- 商品销售排行读取 `sales`、`products`
+- 金砖商品排行读取 `sales`、`salespeople`、`products`
+- 基础数据维护读取 `salespeople`、`products`、`salesperson_targets`、`pending_items`
 
-## V1.1 规则
+金砖商品排行只统计 `products.is_key = 1` 且状态为 `启用` 的商品。
 
-业务销售排行：
+## 常用命令
 
-```text
-完成率 = 今日销售金额 ÷ 每日目标
-```
-
-金砖商品完成率排行：
-
-```text
-金砖商品每日目标 = 金砖商品目标 ÷ 当月自然天数
-今日完成率 = 每日完成件数 ÷ 金砖商品每日目标
-累计完成率 = 累计完成 ÷ 金砖商品目标
-```
-
-导入销售订单时：
-
-- 不存在的业务员会自动创建，并标记为“待确认业务员”
-- 不存在的商品编码会自动创建商品档案，并进入待确认数据池
-- 待确认数据可在“基础数据维护 / 待确认数据池”确认或删除
-- 商品可在“商品维护”中设置是否金砖商品、启用/停用
-
-## 数据文件
-
-- SQLite 数据库：`data/sales_report.db`
-- 上传文件目录：`uploads/`
-- 导出文件目录：`exports/`
-
-## 重置模拟数据
-
-可以在“基础数据维护”页点击“重置模拟数据”。
-
-也可以命令行执行：
+语法检查：
 
 ```bash
-./run.sh --reset
+npm run check
+```
+
+本地开发：
+
+```bash
+npm run dev
+```
+
+提交代码：
+
+```bash
+git add .
+git commit -m "Use Neon PostgreSQL for Vercel deployment"
+git push origin main
 ```
