@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>销售管理系统 V1.1</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">销售管理 V1.1</div>
+    <button class="nav active" data-page="dashboard">首页仪表盘</button>
+    <button class="nav" data-page="upload">销售明细上传</button>
+    <button class="nav" data-page="salespeople">业务销售排行</button>
+    <button class="nav" data-page="products">商品销售排行</button>
+    <button class="nav" data-page="tasks">金砖商品排行</button>
+    <button class="nav" data-page="base">基础数据维护</button>
+  </aside>
+
+  <main class="main">
+    <section id="dashboard" class="page active">
+      <div class="toolbar">
+        <h1>首页仪表盘</h1>
+        <label>统计日期 <input type="date" id="dashDate"></label>
+      </div>
+      <div class="metric-grid" id="overview"></div>
+      <div class="grid two">
+        <div class="panel">
+          <div class="panel-head"><h2>排行快捷入口</h2></div>
+          <div class="quick-links">
+            <button class="goto" data-page="salespeople">业务销售排行</button>
+            <button class="goto" data-page="products">商品销售排行</button>
+            <button class="goto" data-page="tasks">金砖商品排行</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>金砖商品未达标提醒</h2></div>
+          <div id="dashUnmet"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="upload" class="page">
+      <div class="toolbar">
+        <h1>销售明细上传</h1>
+      </div>
+      <div class="panel">
+        <p class="hint">支持 .xlsx，字段必须包含：日期、业务员、客户名称、商品编码、商品名称、销售数量、单价、销售金额。销售金额为空时自动计算；新业务员和新商品会自动加入待确认数据池。</p>
+        <div class="upload-box">
+          <input type="file" id="uploadFile" accept=".xlsx">
+          <button id="uploadBtn">上传Excel</button>
+          <a class="link-btn" href="/api/sales-template" download>下载导入模板</a>
+          <a class="link-btn" href="/api/demo-sales" download>下载模拟销售明细</a>
+        </div>
+        <div id="uploadResult" class="result"></div>
+      </div>
+    </section>
+
+    <section id="salespeople" class="page">
+      <div class="toolbar">
+        <h1>业务销售排行</h1>
+        <div class="filters">
+          <input type="date" id="spDate">
+          <input id="spName" placeholder="业务员">
+          <button id="spSearch">查询</button>
+          <button id="spExport">导出 Excel</button>
+        </div>
+      </div>
+      <div class="panel"><div id="spTable"></div></div>
+    </section>
+
+    <section id="products" class="page">
+      <div class="toolbar">
+        <h1>商品销售排行</h1>
+        <div class="filters">
+          <select id="pdPeriod"><option value="day">按日期</option><option value="week">本周</option><option value="month">本月</option></select>
+          <input type="date" id="pdDate">
+          <input id="pdKeyword" placeholder="商品编码/名称">
+          <label class="check"><input type="checkbox" id="pdKeyOnly"> 只看金砖商品</label>
+          <button id="pdSearch">查询</button>
+          <button id="pdExport">导出 Excel</button>
+        </div>
+      </div>
+      <div class="panel"><div id="pdTable"></div></div>
+    </section>
+
+    <section id="tasks" class="page">
+      <div class="toolbar">
+        <h1>金砖商品完成率排行</h1>
+        <div class="filters">
+          <input type="month" id="taskMonth">
+          <input type="date" id="taskDate">
+          <input id="taskSalesperson" placeholder="业务员">
+          <button id="taskSearch">查询</button>
+          <button id="taskExport">导出 Excel</button>
+        </div>
+      </div>
+      <div class="panel"><div id="taskTable"></div></div>
+    </section>
+
+    <section id="base" class="page">
+      <div class="toolbar">
+        <h1>基础数据维护</h1>
+        <button id="resetDemo" class="danger">重置模拟数据</button>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="salespeopleEdit">业务员维护</button>
+        <button class="tab" data-tab="productsEdit">商品维护</button>
+        <button class="tab" data-tab="salesTargetsEdit">销售目标维护</button>
+        <button class="tab" data-tab="goldTargetsEdit">重点商品维护</button>
+        <button class="tab" data-tab="pendingEdit">待确认数据池</button>
+      </div>
+      <div id="salespeopleEdit" class="tab-page active panel"></div>
+      <div id="productsEdit" class="tab-page panel"></div>
+      <div id="salesTargetsEdit" class="tab-page panel"></div>
+      <div id="goldTargetsEdit" class="tab-page panel"></div>
+      <div id="pendingEdit" class="tab-page panel"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
