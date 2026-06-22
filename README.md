@@ -6,14 +6,17 @@
 
 - 上传销售明细 Excel
 - 自动识别新业务员、新商品，并加入待确认数据池
-- 今日销售概览
+- 老板驾驶舱：首页显示今日销售额、本月销售额、本月完成率、业务员 TOP10、金砖商品完成率 TOP10
 - 业务销售排行
 - 商品销售排行
 - 金砖商品完成率排行
+- 业务员目标维护：业务员、巅峰目标、每日目标，支持 Excel 导入导出
+- 金砖商品维护：商品编码、商品名称、是否金砖商品，支持 Excel 导入导出
 - 基础数据维护：业务员、商品、金砖商品、销售目标
 - 基础数据 Excel 模板下载、批量导入、导出当前数据
 - 各统计表 Excel 导出
 - 自动创建 PostgreSQL 数据表
+- 手机端访问适配
 
 ## 技术架构
 
@@ -182,6 +185,8 @@ https://你的域名/api/db-check
 - 商品销售排行读取 `sales`、`products`
 - 金砖商品排行读取 `sales`、`salespeople`、`products`
 - 基础数据维护读取 `salespeople`、`products`、`salesperson_targets`、`pending_items`
+- 业务员目标维护读取 `salesperson_targets`
+- 金砖商品维护读取 `products`
 
 金砖商品排行只统计 `products.is_key = 1` 且状态为 `启用` 的商品。
 

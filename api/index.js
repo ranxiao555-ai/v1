@@ -38,8 +38,8 @@ function getPool() {
 const SALES_HEADERS = ["日期", "业务员", "客户名称", "商品编码", "商品名称", "销售数量", "单价", "销售金额"];
 const BASE_CONFIG = {
   salespeople: { title: "业务员基础资料", headers: ["业务员编码", "业务员姓名", "所属区域", "所属部门", "入职日期", "状态"] },
-  products: { title: "商品基础资料", headers: ["商品编码", "商品名称", "商品规格", "商品分类", "是否重点商品", "状态"] },
-  goldProducts: { title: "重点商品维护", headers: ["商品编码", "商品名称", "金砖商品目标", "每日目标"] },
+  products: { title: "商品基础资料", headers: ["商品编码", "商品名称", "商品规格", "商品分类", "是否金砖商品", "状态"] },
+  goldProducts: { title: "金砖商品维护", headers: ["商品编码", "商品名称", "是否金砖商品"] },
   salesTargets: { title: "销售目标维护", headers: ["业务员", "巅峰目标", "每日目标"] }
 };
 
@@ -219,6 +219,17 @@ function workbookRows(buffer, headers) {
   return rows;
 }
 
+function maintenanceWorkbookRows(buffer, type) {
+  if (type === "products") {
+    try {
+      return workbookRows(buffer, BASE_CONFIG.products.headers);
+    } catch (e) {
+      return workbookRows(buffer, ["商品编码", "商品名称", "商品规格", "商品分类", "是否重点商品", "状态"]);
+    }
+  }
+  return workbookRows(buffer, BASE_CONFIG[type].headers);
+}
+
 async function readUploadFile(req) {
   const { files } = await parseForm(req);
   const file = Array.isArray(files.file) ? files.file[0] : files.file;
@@ -246,6 +257,7 @@ async function addPending(client, itemType, refKey, name, payload) {
 
 async function apiDashboard(req, res, url) {
   const selected = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+  const month = selected.slice(0, 7);
   const overview = (await query(`
     SELECT ROUND(COALESCE(SUM(amount),0)::numeric,2)::float AS total_amount,
            COALESCE(SUM(quantity),0)::float AS total_qty,
@@ -254,13 +266,21 @@ async function apiDashboard(req, res, url) {
            COUNT(DISTINCT salesperson_name)::int AS salesperson_count
     FROM sales WHERE sale_date=$1
   `, [selected]))[0];
-  const gold = await goldRank(selected.slice(0, 7), selected, "");
+  const monthSummary = (await query(`
+    SELECT ROUND(COALESCE(ms.amount,0)::numeric,2)::float AS month_amount,
+           ROUND(COALESCE(mt.target,0)::numeric,2)::float AS month_target,
+           CASE WHEN COALESCE(mt.target,0)=0 THEN 0 ELSE (COALESCE(ms.amount,0)/mt.target)::float END AS month_completion_rate
+    FROM (SELECT SUM(amount) amount FROM sales WHERE sale_date BETWEEN $1 AND $2) ms
+    CROSS JOIN (SELECT SUM(peak_target) target FROM salesperson_targets WHERE month=$3) mt
+  `, [monthStart(selected), selected, month]))[0];
+  const gold = await goldRank(month, selected, "");
+  const salespeopleRank = await salesRank(selected, "");
   json(res, 200, {
     date: selected,
-    overview,
-    salespeopleRank: await salesRank(selected, ""),
+    overview: { ...overview, ...monthSummary },
+    salespeopleRank: salespeopleRank.slice(0, 10),
     productsRank: await productStats("day", selected, "", "").then((r) => r.slice(0, 8)),
-    taskRank: gold.slice(0, 8),
+    taskRank: gold.slice(0, 10),
     unmet: gold.filter((r) => r["累计完成率"] < 1).slice(0, 10)
   });
 }
@@ -386,7 +406,7 @@ async function maintenanceData() {
     query("SELECT id, code, name, region, department, entry_date, active, pending_confirm FROM salespeople ORDER BY id"),
     query("SELECT id, code, name, spec, category, is_key, gold_target, gold_daily_target, status, pending_confirm FROM products ORDER BY code"),
     query("SELECT id, month, salesperson_name, peak_target, daily_target FROM salesperson_targets ORDER BY month DESC, salesperson_name"),
-    query("SELECT id, code, name, gold_target, gold_daily_target FROM products WHERE is_key=1 ORDER BY code"),
+    query("SELECT id, code, name, is_key FROM products ORDER BY code"),
     query("SELECT id, item_type, ref_key, name, payload, status, created_at FROM pending_items ORDER BY id DESC")
   ]);
   return { salespeople, products, salesTargets, goldTargets, pendingItems, targets: [] };
@@ -418,12 +438,13 @@ async function saveMaintenance(req, res) {
         await client.query("INSERT INTO salesperson_targets(month,salesperson_name,peak_target,daily_target) VALUES ($1,$2,$3,$4)", [r.month || new Date().toISOString().slice(0, 7), r.salesperson_name, toNum(r.peak_target), toNum(r.daily_target)]);
       }
     } else if (table === "goldProducts") {
+      await client.query("UPDATE products SET is_key=0");
       for (const r of records) {
         if (!r.code || !r.name) continue;
         await client.query(`
-          INSERT INTO products(code,name,is_key,gold_target,gold_daily_target,status) VALUES ($1,$2,1,$3,$4,'启用')
-          ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,is_key=1,gold_target=EXCLUDED.gold_target,gold_daily_target=EXCLUDED.gold_daily_target
-        `, [r.code, r.name, toNum(r.gold_target), toNum(r.gold_daily_target)]);
+          INSERT INTO products(code,name,is_key,status) VALUES ($1,$2,$3,'启用')
+          ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,is_key=EXCLUDED.is_key,status='启用'
+        `, [r.code, r.name, r.is_key ? 1 : 0]);
       }
     }
     await client.query("COMMIT");
@@ -440,8 +461,8 @@ function rowsForTemplate(type) {
   const today = new Date().toISOString().slice(0, 10);
   if (type === "sales") return [{ "日期": today, "业务员": "张三", "客户名称": "示例客户", "商品编码": "SP001", "商品名称": "示例商品", "销售数量": 10, "单价": 25.5, "销售金额": "" }];
   if (type === "salespeople") return [{ "业务员编码": "YW001", "业务员姓名": "张三", "所属区域": "华东区", "所属部门": "销售部", "入职日期": today, "状态": "启用" }];
-  if (type === "products") return [{ "商品编码": "SP001", "商品名称": "牛肉卷", "商品规格": "500g/袋", "商品分类": "肉类", "是否重点商品": "是", "状态": "启用" }];
-  if (type === "goldProducts") return [{ "商品编码": "SP001", "商品名称": "牛肉卷", "金砖商品目标": 300, "每日目标": 10 }];
+  if (type === "products") return [{ "商品编码": "SP001", "商品名称": "牛肉卷", "商品规格": "500g/袋", "商品分类": "肉类", "是否金砖商品": "是", "状态": "启用" }];
+  if (type === "goldProducts") return [{ "商品编码": "SP001", "商品名称": "牛肉卷", "是否金砖商品": "是" }];
   if (type === "salesTargets") return [{ "业务员": "张三", "巅峰目标": 200000, "每日目标": 8000 }];
   return [];
 }
@@ -453,7 +474,7 @@ async function importMaintenance(req, res, type) {
   const errors = [];
   let success = 0;
   try {
-    const rows = workbookRows(buffer, config.headers);
+    const rows = maintenanceWorkbookRows(buffer, type);
     const client = await getPool().connect();
     try {
       for (let i = 0; i < rows.length; i++) {
@@ -473,15 +494,15 @@ async function importMaintenance(req, res, type) {
             await client.query(`
               INSERT INTO products(code,name,spec,category,is_key,status,pending_confirm) VALUES ($1,$2,$3,$4,$5,$6,0)
               ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,spec=EXCLUDED.spec,category=EXCLUDED.category,is_key=EXCLUDED.is_key,status=EXCLUDED.status
-            `, [code, name, row["商品规格"] || "", row["商品分类"] || "", truthy(row["是否重点商品"]) ? 1 : 0, row["状态"] || "启用"]);
+            `, [code, name, row["商品规格"] || "", row["商品分类"] || "", truthy(row["是否金砖商品"] || row["是否重点商品"]) ? 1 : 0, row["状态"] || "启用"]);
           } else if (type === "goldProducts") {
             const code = String(row["商品编码"] || "").trim();
             const name = String(row["商品名称"] || "").trim();
             if (!code || !name) throw new Error("商品编码、商品名称不能为空");
             await client.query(`
-              INSERT INTO products(code,name,is_key,gold_target,gold_daily_target,status,pending_confirm) VALUES ($1,$2,1,$3,$4,'启用',0)
-              ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,is_key=1,gold_target=EXCLUDED.gold_target,gold_daily_target=EXCLUDED.gold_daily_target
-            `, [code, name, toNum(row["金砖商品目标"]), toNum(row["每日目标"])]);
+              INSERT INTO products(code,name,is_key,status,pending_confirm) VALUES ($1,$2,$3,'启用',0)
+              ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name,is_key=EXCLUDED.is_key,status='启用'
+            `, [code, name, truthy(row["是否金砖商品"]) ? 1 : 0]);
           } else if (type === "salesTargets") {
             const salesperson = String(row["业务员"] || "").trim();
             if (!salesperson) throw new Error("业务员不能为空");
@@ -574,6 +595,105 @@ async function uploadSales(req, res, url) {
   json(res, 200, { ok: true, rows: rows.length, dates, newSalespeople, newProducts, message });
 }
 
+async function pendingAction(req, res) {
+  const body = await parseJson(req);
+  const id = Number(body.id);
+  const action = body.action;
+  if (!id || !["confirm", "modify", "delete"].includes(action)) return json(res, 400, { error: "待确认数据操作参数错误" });
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query("SELECT * FROM pending_items WHERE id=$1", [id]);
+    if (!found.rowCount) throw new Error("待确认数据不存在");
+    const item = found.rows[0];
+    const nextKey = String(body.ref_key || item.ref_key || "").trim();
+    const nextName = String(body.name || item.name || "").trim();
+    if (action === "confirm") {
+      if (item.item_type === "业务员") {
+        await client.query("UPDATE salespeople SET pending_confirm=0 WHERE name=$1", [item.ref_key]);
+      } else if (item.item_type === "商品") {
+        await client.query("UPDATE products SET pending_confirm=0 WHERE code=$1", [item.ref_key]);
+      }
+      await client.query("UPDATE pending_items SET status='已确认' WHERE id=$1", [id]);
+    } else if (action === "modify") {
+      if (!nextKey || !nextName) throw new Error("编码/姓名和名称不能为空");
+      if (item.item_type === "业务员") {
+        await client.query("UPDATE salespeople SET name=$1,pending_confirm=0 WHERE name=$2", [nextName, item.ref_key]);
+        await client.query("UPDATE sales SET salesperson_name=$1 WHERE salesperson_name=$2", [nextName, item.ref_key]);
+      } else if (item.item_type === "商品") {
+        await client.query("UPDATE products SET code=$1,name=$2,pending_confirm=0 WHERE code=$3", [nextKey, nextName, item.ref_key]);
+        await client.query("UPDATE sales SET product_code=$1,product_name=$2 WHERE product_code=$3", [nextKey, nextName, item.ref_key]);
+      }
+      await client.query("UPDATE pending_items SET ref_key=$1,name=$2,status='已确认' WHERE id=$3", [nextKey, nextName, id]);
+    } else if (action === "delete") {
+      if (item.item_type === "业务员") {
+        await client.query("DELETE FROM salespeople WHERE name=$1", [item.ref_key]);
+        await client.query("DELETE FROM sales WHERE salesperson_name=$1", [item.ref_key]);
+      } else if (item.item_type === "商品") {
+        await client.query("DELETE FROM products WHERE code=$1", [item.ref_key]);
+        await client.query("DELETE FROM sales WHERE product_code=$1", [item.ref_key]);
+      }
+      await client.query("UPDATE pending_items SET status='已删除' WHERE id=$1", [id]);
+    }
+    await client.query("COMMIT");
+    json(res, 200, { ok: true, message: "操作成功" });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+async function resetDemo(res) {
+  const client = await getPool().connect();
+  const salespeople = ["张三", "李四", "王五", "赵六", "钱七"];
+  const regions = ["华东", "华南", "华北", "西南", "华中"];
+  const today = new Date();
+  const month = today.toISOString().slice(0, 7);
+  try {
+    await client.query("BEGIN");
+    await client.query("TRUNCATE sales, salesperson_targets, products, salespeople, pending_items RESTART IDENTITY");
+    for (let i = 0; i < salespeople.length; i += 1) {
+      await client.query("INSERT INTO salespeople(code,name,region,department,entry_date,active,pending_confirm) VALUES ($1,$2,$3,'销售部',$4,1,0)", [`YW${String(i + 1).padStart(3, "0")}`, salespeople[i], regions[i], `${month}-01`]);
+      await client.query("INSERT INTO salesperson_targets(month,salesperson_name,peak_target,daily_target) VALUES ($1,$2,$3,$4)", [month, salespeople[i], 200000 + i * 30000, 8000 + i * 1000]);
+    }
+    for (let i = 1; i <= 30; i += 1) {
+      const isKey = i <= 10 ? 1 : 0;
+      await client.query("INSERT INTO products(code,name,spec,category,is_key,gold_target,gold_daily_target,status,pending_confirm) VALUES ($1,$2,$3,$4,$5,$6,$7,'启用',0)", [
+        `SP${String(i).padStart(3, "0")}`,
+        `${isKey ? "金砖" : "普通"}商品${i}`,
+        "标准",
+        isKey ? "金砖商品" : "常规商品",
+        isKey,
+        isKey ? 300 : 0,
+        isKey ? 10 : 0
+      ]);
+    }
+    for (let d = 0; d < 30; d += 1) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - d);
+      const saleDate = date.toISOString().slice(0, 10);
+      for (let i = 0; i < salespeople.length; i += 1) {
+        const codeNum = ((d + i) % 30) + 1;
+        const qty = ((d + 1) * (i + 2)) % 18 + 3;
+        const price = 80 + codeNum * 3;
+        await client.query(`
+          INSERT INTO sales(sale_date,salesperson_name,customer_name,product_code,product_name,quantity,unit_price,amount,uploaded_at,source_file)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'系统模拟数据')
+        `, [saleDate, salespeople[i], `客户${(d + i) % 12 + 1}`, `SP${String(codeNum).padStart(3, "0")}`, `${codeNum <= 10 ? "金砖" : "普通"}商品${codeNum}`, qty, price, qty * price, new Date().toISOString()]);
+      }
+    }
+    await client.query("COMMIT");
+    json(res, 200, { ok: true, message: "已重置为 PostgreSQL 模拟数据" });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 async function main(req, res) {
   try {
     await ensureSchema();
@@ -586,6 +706,8 @@ async function main(req, res) {
     if (req.method === "GET" && path === "/product-stats") return json(res, 200, await productStats(url.searchParams.get("period") || "day", url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("product") || "", url.searchParams.get("keyOnly") || ""));
     if (req.method === "GET" && path === "/maintenance") return json(res, 200, await maintenanceData());
     if (req.method === "POST" && path === "/maintenance") return saveMaintenance(req, res);
+    if (req.method === "POST" && path === "/pending/action") return pendingAction(req, res);
+    if (req.method === "POST" && path === "/reset-demo") return resetDemo(res);
     if (req.method === "POST" && path === "/upload") return uploadSales(req, res, url);
     if (req.method === "GET" && path === "/sales-template") return xlsxResponse(res, "销售明细导入模板.xlsx", SALES_HEADERS, rowsForTemplate("sales"));
     if (req.method === "GET" && path === "/demo-sales") return xlsxResponse(res, "模拟销售明细.xlsx", SALES_HEADERS, rowsForTemplate("sales"));
@@ -600,8 +722,8 @@ async function main(req, res) {
       const type = path.split("/").pop();
       const data = await maintenanceData();
       if (type === "salespeople") return xlsxResponse(res, "业务员基础资料_当前数据.xlsx", BASE_CONFIG.salespeople.headers, data.salespeople.map((r) => ({ "业务员编码": r.code, "业务员姓名": r.name, "所属区域": r.region, "所属部门": r.department, "入职日期": r.entry_date, "状态": r.active ? "启用" : "停用" })));
-      if (type === "products") return xlsxResponse(res, "商品基础资料_当前数据.xlsx", BASE_CONFIG.products.headers, data.products.map((r) => ({ "商品编码": r.code, "商品名称": r.name, "商品规格": r.spec, "商品分类": r.category, "是否重点商品": r.is_key ? "是" : "否", "状态": r.status })));
-      if (type === "goldProducts") return xlsxResponse(res, "重点商品维护_当前数据.xlsx", BASE_CONFIG.goldProducts.headers, data.goldTargets.map((r) => ({ "商品编码": r.code, "商品名称": r.name, "金砖商品目标": r.gold_target, "每日目标": r.gold_daily_target })));
+      if (type === "products") return xlsxResponse(res, "商品基础资料_当前数据.xlsx", BASE_CONFIG.products.headers, data.products.map((r) => ({ "商品编码": r.code, "商品名称": r.name, "商品规格": r.spec, "商品分类": r.category, "是否金砖商品": r.is_key ? "是" : "否", "状态": r.status })));
+      if (type === "goldProducts") return xlsxResponse(res, "金砖商品维护_当前数据.xlsx", BASE_CONFIG.goldProducts.headers, data.products.map((r) => ({ "商品编码": r.code, "商品名称": r.name, "是否金砖商品": r.is_key ? "是" : "否" })));
       if (type === "salesTargets") return xlsxResponse(res, "销售目标维护_当前数据.xlsx", BASE_CONFIG.salesTargets.headers, data.salesTargets.map((r) => ({ "业务员": r.salesperson_name, "巅峰目标": r.peak_target, "每日目标": r.daily_target })));
     }
     if (req.method === "GET" && path.startsWith("/error-file/")) {

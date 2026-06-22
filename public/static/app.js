@@ -68,7 +68,7 @@ function initNavigation() {
     const nav = document.querySelector(`.nav[data-page="${page}"]`);
     if (nav) nav.classList.add("active");
     $(page).classList.add("active");
-    if (page === "base") loadMaintenance();
+    if (["base", "salesTargets", "goldProducts"].includes(page)) loadMaintenance();
   };
   document.querySelectorAll(".nav").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -90,14 +90,13 @@ function initNavigation() {
 async function loadDashboard() {
   const data = await api(`/api/dashboard?${params({ date: $("dashDate").value })}`);
   const overview = [
-    ["今日总销售金额", `¥${fmtNumber(data.overview.total_amount)}`],
-    ["今日总销售数量", fmtNumber(data.overview.total_qty)],
-    ["今日成交客户数", fmtNumber(data.overview.customer_count)],
-    ["今日销售商品数", fmtNumber(data.overview.product_count)],
-    ["今日有销售业务员", fmtNumber(data.overview.salesperson_count)]
+    ["今日销售额", `¥${fmtNumber(data.overview.total_amount)}`],
+    ["本月销售额", `¥${fmtNumber(data.overview.month_amount)}`],
+    ["本月完成率", `${(Number(data.overview.month_completion_rate || 0) * 100).toFixed(1)}%`]
   ];
   $("overview").innerHTML = overview.map(([label, value]) => `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`).join("");
-  renderTable($("dashUnmet"), tableHeaders.taskRank, data.unmet);
+  renderTable($("dashSalesTop"), tableHeaders.salespeople, data.salespeopleRank);
+  renderTable($("dashGoldTop"), tableHeaders.taskRank, data.taskRank);
 }
 
 async function loadSalespeople() {
@@ -160,6 +159,8 @@ async function loadMaintenance() {
 }
 
 function editShell(id, table, headers, rowsHtml) {
+  const target = $(id);
+  if (!target) return;
   $(id).innerHTML = `
     <div class="edit-actions drop-zone" data-drop="${table}">
       <a class="link-btn" href="/api/base-template/${table}" download>下载导入模板</a>
@@ -173,18 +174,18 @@ function editShell(id, table, headers, rowsHtml) {
     <div class="result" data-import-result="${table}"></div>
     <table class="edit-table"><thead><tr><th>选择</th>${headers.map((h) => `<th>${h}</th>`).join("")}<th>操作</th></tr></thead><tbody>${rowsHtml}</tbody></table>
   `;
-  $(id).querySelector(`[data-add5="${table}"]`).addEventListener("click", () => addEditRows(table, 5));
-  $(id).querySelector(`[data-save="${table}"]`).addEventListener("click", () => saveEditTable(table));
+  $(id).querySelector(`[data-add5="${table}"]`).addEventListener("click", () => addEditRowsIn(id, table, 5));
+  $(id).querySelector(`[data-save="${table}"]`).addEventListener("click", () => saveEditTableFrom(id, table));
   $(id).querySelector(`[data-export="${table}"]`).addEventListener("click", () => download(`/api/export-maintenance/${table}`));
   $(id).querySelector(`[data-delete-selected="${table}"]`).addEventListener("click", () => deleteSelectedRows(id));
-  $(id).querySelector(`[data-import="${table}"]`).addEventListener("change", (e) => importMaintenance(table, e.target.files[0]));
+  $(id).querySelector(`[data-import="${table}"]`).addEventListener("change", (e) => importMaintenanceTo(id, table, e.target.files[0]));
   const dropZone = $(id).querySelector(`[data-drop="${table}"]`);
   dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragging"); });
   dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("dragging");
-    importMaintenance(table, e.dataTransfer.files[0]);
+    importMaintenanceTo(id, table, e.dataTransfer.files[0]);
   });
   $(id).querySelectorAll("[data-remove]").forEach((btn) => btn.addEventListener("click", () => btn.closest("tr").remove()));
 }
@@ -210,7 +211,7 @@ function salespeopleRow(r = {}) {
 
 function renderProductsEdit(rows) {
   const html = rows.map((r) => productsRow(r)).join("");
-  editShell("productsEdit", "products", ["商品编码", "商品名称", "商品规格", "商品分类", "是否重点商品", "状态", "待确认"], html);
+  editShell("productsEdit", "products", ["商品编码", "商品名称", "商品规格", "商品分类", "是否金砖商品", "状态", "待确认"], html);
 }
 
 function productsRow(r = {}) {
@@ -230,6 +231,7 @@ function productsRow(r = {}) {
 function renderSalesTargetsEdit(rows) {
   const html = rows.map((r) => salesTargetsRow(r)).join("");
   editShell("salesTargetsEdit", "salesTargets", ["月份", "业务员", "巅峰目标", "每日目标"], html);
+  editShell("salesTargetsPageEdit", "salesTargets", ["月份", "业务员", "巅峰目标", "每日目标"], html);
 }
 
 function salesTargetsRow(r = {}) {
@@ -245,7 +247,8 @@ function salesTargetsRow(r = {}) {
 
 function renderGoldTargetsEdit(rows) {
   const html = rows.map((r) => goldTargetsRow(r)).join("");
-  editShell("goldTargetsEdit", "goldProducts", ["商品编码", "商品名称", "金砖商品目标", "每日目标"], html);
+  editShell("goldTargetsEdit", "goldProducts", ["商品编码", "商品名称", "是否金砖商品"], html);
+  editShell("goldProductsPageEdit", "goldProducts", ["商品编码", "商品名称", "是否金砖商品"], html);
 }
 
 function goldTargetsRow(r = {}) {
@@ -253,8 +256,7 @@ function goldTargetsRow(r = {}) {
     <td><input type="checkbox" data-select-row></td>
     <td><input data-field="code" value="${r.code || ""}"></td>
     <td><input data-field="name" value="${r.name || ""}"></td>
-    <td><input type="number" min="0" step="1" data-field="gold_target" value="${r.gold_target || 0}"></td>
-    <td><input type="number" min="0" step="0.01" data-field="gold_daily_target" value="${r.gold_daily_target || 0}"></td>
+    <td><select data-field="is_key"><option value="1" ${r.is_key === 1 ? "selected" : ""}>是</option><option value="0" ${r.is_key !== 1 ? "selected" : ""}>否</option></select></td>
     <td><button data-remove>删除</button></td>
   </tr>`;
 }
@@ -305,13 +307,16 @@ function panelIdFor(table) {
   return table === "salespeople" ? "salespeopleEdit" : table === "products" ? "productsEdit" : table === "salesTargets" ? "salesTargetsEdit" : "goldTargetsEdit";
 }
 
-function addEditRows(table, count = 1) {
+function addEditRowsIn(panel, table, count = 1) {
   const map = { salespeople: salespeopleRow, products: productsRow, salesTargets: salesTargetsRow, goldProducts: goldTargetsRow };
-  const panel = panelIdFor(table);
   for (let i = 0; i < count; i += 1) {
     $(panel).querySelector("tbody").insertAdjacentHTML("beforeend", map[table]({}));
     $(panel).querySelector("tbody tr:last-child [data-remove]").addEventListener("click", (e) => e.target.closest("tr").remove());
   }
+}
+
+function addEditRows(table, count = 1) {
+  addEditRowsIn(panelIdFor(table), table, count);
 }
 
 function deleteSelectedRows(panelId) {
@@ -324,9 +329,8 @@ function deleteSelectedRows(panelId) {
   rows.forEach((tr) => tr.remove());
 }
 
-async function importMaintenance(table, file) {
+async function importMaintenanceTo(panel, table, file) {
   if (!file) return;
-  const panel = panelIdFor(table);
   const result = $(panel).querySelector(`[data-import-result="${table}"]`);
   const form = new FormData();
   form.append("file", file);
@@ -340,8 +344,11 @@ async function importMaintenance(table, file) {
   }
 }
 
-async function saveEditTable(table) {
-  const panel = panelIdFor(table);
+async function importMaintenance(table, file) {
+  return importMaintenanceTo(panelIdFor(table), table, file);
+}
+
+async function saveEditTableFrom(panel, table) {
   const records = Array.from($(panel).querySelectorAll("tbody tr")).map((tr) => {
     const obj = {};
     tr.querySelectorAll("[data-field]").forEach((input) => {
@@ -358,6 +365,10 @@ async function saveEditTable(table) {
   });
   alert(data.message);
   loadMaintenance();
+}
+
+async function saveEditTable(table) {
+  return saveEditTableFrom(panelIdFor(table), table);
 }
 
 function initEvents() {

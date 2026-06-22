@@ -9,33 +9,31 @@
 <body>
   <aside class="sidebar">
     <div class="brand">销售管理 V1.1</div>
-    <button class="nav active" data-page="dashboard">首页仪表盘</button>
+    <button class="nav active" data-page="dashboard">老板驾驶舱</button>
     <button class="nav" data-page="upload">销售明细上传</button>
     <button class="nav" data-page="salespeople">业务销售排行</button>
     <button class="nav" data-page="products">商品销售排行</button>
     <button class="nav" data-page="tasks">金砖商品排行</button>
+    <button class="nav" data-page="salesTargets">业务员目标维护</button>
+    <button class="nav" data-page="goldProducts">金砖商品维护</button>
     <button class="nav" data-page="base">基础数据维护</button>
   </aside>
 
   <main class="main">
     <section id="dashboard" class="page active">
       <div class="toolbar">
-        <h1>首页仪表盘</h1>
+        <h1>老板驾驶舱</h1>
         <label>统计日期 <input type="date" id="dashDate"></label>
       </div>
       <div class="metric-grid" id="overview"></div>
       <div class="grid two">
         <div class="panel">
-          <div class="panel-head"><h2>排行快捷入口</h2></div>
-          <div class="quick-links">
-            <button class="goto" data-page="salespeople">业务销售排行</button>
-            <button class="goto" data-page="products">商品销售排行</button>
-            <button class="goto" data-page="tasks">金砖商品排行</button>
-          </div>
+          <div class="panel-head"><h2>业务员 TOP10</h2></div>
+          <div id="dashSalesTop"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h2>金砖商品未达标提醒</h2></div>
-          <div id="dashUnmet"></div>
+          <div class="panel-head"><h2>金砖商品完成率 TOP10</h2></div>
+          <div id="dashGoldTop"></div>
         </div>
       </div>
     </section>
@@ -98,6 +96,20 @@
       <div class="panel"><div id="taskTable"></div></div>
     </section>
 
+    <section id="salesTargets" class="page">
+      <div class="toolbar">
+        <h1>业务员目标维护</h1>
+      </div>
+      <div id="salesTargetsPageEdit" class="panel"></div>
+    </section>
+
+    <section id="goldProducts" class="page">
+      <div class="toolbar">
+        <h1>金砖商品维护</h1>
+      </div>
+      <div id="goldProductsPageEdit" class="panel"></div>
+    </section>
+
     <section id="base" class="page">
       <div class="toolbar">
         <h1>基础数据维护</h1>
@@ -106,8 +118,8 @@
       <div class="tabs">
         <button class="tab active" data-tab="salespeopleEdit">业务员维护</button>
         <button class="tab" data-tab="productsEdit">商品维护</button>
-        <button class="tab" data-tab="salesTargetsEdit">销售目标维护</button>
-        <button class="tab" data-tab="goldTargetsEdit">重点商品维护</button>
+        <button class="tab" data-tab="salesTargetsEdit">业务员目标维护</button>
+        <button class="tab" data-tab="goldTargetsEdit">金砖商品维护</button>
         <button class="tab" data-tab="pendingEdit">待确认数据池</button>
       </div>
       <div id="salespeopleEdit" class="tab-page active panel"></div>
