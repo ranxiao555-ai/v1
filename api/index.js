@@ -393,12 +393,42 @@ async function dbCheck() {
   return {
     ok: true,
     database: "connected",
+    connectionStatus: "已连接",
     provider: "Neon PostgreSQL",
     env: getDatabaseUrlSource(),
     schemaReady: tables.every((table) => existing.includes(table)),
     tables: existing,
-    counts
+    counts,
+    salesCount: counts.sales || 0,
+    salespersonCount: counts.salespeople || 0,
+    productCount: counts.products || 0
   };
+}
+
+async function clearSalesData(res) {
+  const result = await getPool().query("DELETE FROM sales");
+  const deleted = result.rowCount || 0;
+  json(res, 200, { ok: true, deleted, message: `数据库已清空，共删除${deleted}条记录` });
+}
+
+async function reinitializeDatabase(res) {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const tables = ["sales", "salesperson_targets", "gold_targets", "targets", "products", "salespeople", "pending_items"];
+    let deleted = 0;
+    for (const table of tables) {
+      const result = await client.query(`DELETE FROM ${table}`);
+      deleted += result.rowCount || 0;
+    }
+    await client.query("COMMIT");
+    json(res, 200, { ok: true, deleted, message: `数据库已清空，共删除${deleted}条记录` });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function maintenanceData() {
@@ -700,6 +730,9 @@ async function main(req, res) {
     const url = parseUrl(req);
     const path = url.pathname.replace(/^\/api/, "") || "/";
     if (req.method === "GET" && path === "/db-check") return json(res, 200, await dbCheck());
+    if (req.method === "GET" && path === "/db-status") return json(res, 200, await dbCheck());
+    if (req.method === "POST" && path === "/clear-sales-data") return clearSalesData(res);
+    if (req.method === "POST" && path === "/reinitialize-database") return reinitializeDatabase(res);
     if (req.method === "GET" && path === "/dashboard") return apiDashboard(req, res, url);
     if (req.method === "GET" && path === "/sales-ranking") return json(res, 200, await salesRank(url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || ""));
     if (req.method === "GET" && path === "/gold-rank") return json(res, 200, await goldRank(url.searchParams.get("month") || new Date().toISOString().slice(0, 7), url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || ""));

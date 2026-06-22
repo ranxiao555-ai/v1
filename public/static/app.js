@@ -69,6 +69,7 @@ function initNavigation() {
     if (nav) nav.classList.add("active");
     $(page).classList.add("active");
     if (["base", "salesTargets", "goldProducts"].includes(page)) loadMaintenance();
+    if (page === "database") loadDatabaseStatus();
   };
   document.querySelectorAll(".nav").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -112,6 +113,48 @@ async function loadProducts() {
 async function loadTasks() {
   const q = taskQuery();
   renderTable($("taskTable"), tableHeaders.taskRank, await api(`/api/gold-rank?${q}`));
+}
+
+async function loadDatabaseStatus() {
+  const data = await api("/api/db-status");
+  const overview = [
+    ["数据库连接状态", data.connectionStatus || (data.ok ? "已连接" : "异常")],
+    ["销售记录数", fmtNumber(data.salesCount)],
+    ["业务员数量", fmtNumber(data.salespersonCount)],
+    ["商品数量", fmtNumber(data.productCount)]
+  ];
+  $("dbOverview").innerHTML = overview.map(([label, value]) => `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`).join("");
+}
+
+async function runDatabaseAction(action) {
+  const config = {
+    clear: {
+      url: "/api/clear-sales-data",
+      title: "清空测试数据",
+      first: "确认清空测试数据？此操作只删除销售明细，不删除业务员目标和商品资料。",
+      second: "请再次确认：销售明细删除后不可恢复。"
+    },
+    reinit: {
+      url: "/api/reinitialize-database",
+      title: "重新初始化数据库",
+      first: "确认重新初始化数据库？此操作会清空所有业务数据，但保留表结构、系统配置和管理员账号。",
+      second: "请再次确认：业务数据删除后不可恢复。"
+    }
+  }[action];
+  if (!confirm(config.first)) return;
+  if (!confirm(config.second)) return;
+  $("dbActionResult").innerHTML = `<span class="hint">${config.title}执行中...</span>`;
+  try {
+    const data = await api(config.url, { method: "POST" });
+    $("dbActionResult").innerHTML = `<span class="ok">${data.message}</span>`;
+    await loadDatabaseStatus();
+    loadDashboard();
+    loadSalespeople();
+    loadProducts();
+    loadTasks();
+  } catch (err) {
+    $("dbActionResult").innerHTML = `<span class="error">${err.message}</span>`;
+  }
 }
 
 function taskQuery() {
@@ -383,6 +426,9 @@ function initEvents() {
   $("spSearch").addEventListener("click", loadSalespeople);
   $("pdSearch").addEventListener("click", loadProducts);
   $("taskSearch").addEventListener("click", loadTasks);
+  $("dbRefresh").addEventListener("click", loadDatabaseStatus);
+  $("clearSalesData").addEventListener("click", () => runDatabaseAction("clear"));
+  $("reinitDatabase").addEventListener("click", () => runDatabaseAction("reinit"));
 
   $("spExport").addEventListener("click", () => download(`/api/export/sales-ranking?${params({ date: $("spDate").value, salesperson: $("spName").value.trim() })}`));
   $("pdExport").addEventListener("click", () => download(`/api/export/products?${params({ period: $("pdPeriod").value, date: $("pdDate").value, product: $("pdKeyword").value.trim(), keyOnly: $("pdKeyOnly").checked ? "1" : "" })}`));
@@ -407,3 +453,4 @@ loadDashboard();
 loadSalespeople();
 loadProducts();
 loadTasks();
+loadDatabaseStatus();

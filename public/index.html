@@ -17,6 +17,7 @@
     <button class="nav" data-page="salesTargets">业务员目标维护</button>
     <button class="nav" data-page="goldProducts">金砖商品维护</button>
     <button class="nav" data-page="base">基础数据维护</button>
+    <button class="nav" data-page="database">数据库状态</button>
   </aside>
 
   <main class="main">
@@ -127,6 +128,25 @@
       <div id="salesTargetsEdit" class="tab-page panel"></div>
       <div id="goldTargetsEdit" class="tab-page panel"></div>
       <div id="pendingEdit" class="tab-page panel"></div>
+    </section>
+
+    <section id="database" class="page">
+      <div class="toolbar">
+        <h1>数据库状态</h1>
+        <button id="dbRefresh">刷新状态</button>
+      </div>
+      <div class="metric-grid" id="dbOverview"></div>
+      <div class="panel danger-panel">
+        <div class="panel-head">
+          <h2>测试数据初始化</h2>
+        </div>
+        <p class="hint">清空测试数据仅删除销售明细，不删除商品资料、业务员资料和目标。重新初始化数据库会清空销售明细、业务员、商品、目标和待确认数据，但保留表结构、系统配置和管理员账号。</p>
+        <div class="quick-links">
+          <button id="clearSalesData" class="danger">清空测试数据</button>
+          <button id="reinitDatabase" class="danger">重新初始化数据库</button>
+        </div>
+        <div id="dbActionResult" class="result"></div>
+      </div>
     </section>
   </main>
 

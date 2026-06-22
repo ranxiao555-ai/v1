@@ -110,6 +110,7 @@ button, .link-btn {
 
 button:hover, .link-btn:hover { background: var(--primary-dark); }
 button.danger { background: var(--danger); }
+button.danger:hover { background: #b91c1c; }
 
 .check {
   display: inline-flex;
@@ -131,6 +132,11 @@ button.danger { background: var(--danger); }
 
 .panel-head {
   margin-bottom: 12px;
+}
+
+.danger-panel {
+  border-color: #fecaca;
+  background: #fffafa;
 }
 
 .grid.two {
