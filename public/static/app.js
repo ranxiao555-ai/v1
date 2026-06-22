@@ -130,9 +130,9 @@ async function runDatabaseAction(action) {
   const config = {
     clear: {
       url: "/api/clear-sales-data",
-      title: "清空测试数据",
-      first: "确认清空测试数据？此操作只删除销售明细，不删除业务员目标和商品资料。",
-      second: "请再次确认：销售明细删除后不可恢复。"
+      title: "清空销售数据",
+      first: "确认清空销售数据？此操作只删除销售明细表，不删除业务员资料、商品资料、目标任务和管理员账号。",
+      second: "请再次确认：销售明细删除后不可恢复，数据库表结构会保留。"
     },
     reinit: {
       url: "/api/reinitialize-database",

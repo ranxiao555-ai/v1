@@ -17,7 +17,7 @@
     <button class="nav" data-page="salesTargets">业务员目标维护</button>
     <button class="nav" data-page="goldProducts">金砖商品维护</button>
     <button class="nav" data-page="base">基础数据维护</button>
-    <button class="nav" data-page="database">数据库状态</button>
+    <button class="nav" data-page="database">系统维护</button>
   </aside>
 
   <main class="main">
@@ -132,17 +132,17 @@
 
     <section id="database" class="page">
       <div class="toolbar">
-        <h1>数据库状态</h1>
+        <h1>系统维护</h1>
         <button id="dbRefresh">刷新状态</button>
       </div>
       <div class="metric-grid" id="dbOverview"></div>
       <div class="panel danger-panel">
         <div class="panel-head">
-          <h2>测试数据初始化</h2>
+          <h2>清空销售数据</h2>
         </div>
-        <p class="hint">清空测试数据仅删除销售明细，不删除商品资料、业务员资料和目标。重新初始化数据库会清空销售明细、业务员、商品、目标和待确认数据，但保留表结构、系统配置和管理员账号。</p>
+        <p class="hint">此功能调用当前 Vercel 环境中的 DATABASE_URL，仅清空销售明细表，不删除业务员资料、商品资料、目标任务、管理员账号和数据库表结构。</p>
         <div class="quick-links">
-          <button id="clearSalesData" class="danger">清空测试数据</button>
+          <button id="clearSalesData" class="danger">清空销售数据</button>
           <button id="reinitDatabase" class="danger">重新初始化数据库</button>
         </div>
         <div id="dbActionResult" class="result"></div>
