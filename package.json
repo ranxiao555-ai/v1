@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "vercel dev",
-    "check": "node -c api/index.js"
+    "check": "node -c api/index.js && node --check public/static/app.js && node --check scripts/clear-sales-data.js",
+    "clear:sales-data": "node scripts/clear-sales-data.js"
   },
   "dependencies": {
     "formidable": "^3.5.2",

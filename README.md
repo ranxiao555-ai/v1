@@ -86,6 +86,20 @@ POST /api/clear-sales-data
 POST /api/reinitialize-database
 ```
 
+命令行清空销售测试数据：
+
+```bash
+DATABASE_URL="你的 Neon 连接字符串" npm run clear:sales-data
+```
+
+该命令只执行：
+
+```sql
+DELETE FROM sales;
+```
+
+不会删除业务员目标、商品资料、管理员账号、数据库表结构和系统功能。
+
 ## Neon 创建步骤
 
 1. 打开 [Neon 控制台](https://console.neon.tech/)。
