@@ -29,7 +29,7 @@
       <div class="metric-grid" id="overview"></div>
       <div class="grid two">
         <div class="panel">
-          <div class="panel-head"><h2>业务员 TOP10</h2></div>
+          <div class="panel-head"><h2>业务员销售排行</h2></div>
           <div id="dashSalesTop"></div>
         </div>
         <div class="panel">
@@ -59,7 +59,8 @@
       <div class="toolbar">
         <h1>业务销售排行</h1>
         <div class="filters">
-          <input type="date" id="spDate">
+          <label>开始日期 <input type="date" id="spStartDate"></label>
+          <label>结束日期 <input type="date" id="spEndDate"></label>
           <input id="spName" placeholder="业务员">
           <button id="spSearch">查询</button>
           <button id="spExport">导出 Excel</button>
@@ -73,7 +74,8 @@
         <h1>商品销售排行</h1>
         <div class="filters">
           <select id="pdPeriod"><option value="day">按日期</option><option value="week">本周</option><option value="month">本月</option></select>
-          <input type="date" id="pdDate">
+          <label>开始日期 <input type="date" id="pdStartDate"></label>
+          <label>结束日期 <input type="date" id="pdEndDate"></label>
           <input id="pdKeyword" placeholder="商品编码/名称">
           <label class="check"><input type="checkbox" id="pdKeyOnly"> 只看金砖商品</label>
           <button id="pdSearch">查询</button>
@@ -88,7 +90,8 @@
         <h1>金砖商品完成率排行</h1>
         <div class="filters">
           <input type="month" id="taskMonth">
-          <input type="date" id="taskDate">
+          <label>开始日期 <input type="date" id="taskStartDate"></label>
+          <label>结束日期 <input type="date" id="taskEndDate"></label>
           <input id="taskSalesperson" placeholder="业务员">
           <button id="taskSearch">查询</button>
           <button id="taskExport">导出 Excel</button>

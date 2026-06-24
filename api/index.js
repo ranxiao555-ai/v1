@@ -278,16 +278,18 @@ async function apiDashboard(req, res, url) {
   json(res, 200, {
     date: selected,
     overview: { ...overview, ...monthSummary },
-    salespeopleRank: salespeopleRank.slice(0, 10),
+    salespeopleRank,
     productsRank: await productStats("day", selected, "", "").then((r) => r.slice(0, 8)),
     taskRank: gold.slice(0, 10),
     unmet: gold.filter((r) => r["累计完成率"] < 1).slice(0, 10)
   });
 }
 
-async function salesRank(selected, salesperson) {
+async function salesRank(selected, salesperson, startDate = "", endDate = "") {
   const month = selected.slice(0, 7);
-  const params = [selected, month, monthStart(selected), selected];
+  const rangeStart = startDate || selected;
+  const rangeEnd = endDate || selected;
+  const params = [rangeStart, rangeEnd, month, monthStart(selected), selected];
   let where = "";
   if (salesperson) {
     params.push(salesperson);
@@ -301,18 +303,21 @@ async function salesRank(selected, salesperson) {
            COALESCE(st.daily_target,0)::float AS "每日目标",
            CASE WHEN COALESCE(st.daily_target,0)=0 THEN 0 ELSE (COALESCE(day_sales.amount,0)/st.daily_target)::float END AS "完成率"
     FROM salespeople sp
-    LEFT JOIN salesperson_targets st ON st.salesperson_name=sp.name AND st.month=$2
-    LEFT JOIN (SELECT salesperson_name, SUM(amount) amount FROM sales WHERE sale_date=$1 GROUP BY salesperson_name) day_sales ON day_sales.salesperson_name=sp.name
-    LEFT JOIN (SELECT salesperson_name, SUM(amount) amount FROM sales WHERE sale_date BETWEEN $3 AND $4 GROUP BY salesperson_name) month_sales ON month_sales.salesperson_name=sp.name
+    LEFT JOIN salesperson_targets st ON st.salesperson_name=sp.name AND st.month=$3
+    LEFT JOIN (SELECT salesperson_name, SUM(amount) amount FROM sales WHERE sale_date BETWEEN $1 AND $2 GROUP BY salesperson_name) day_sales ON day_sales.salesperson_name=sp.name
+    LEFT JOIN (SELECT salesperson_name, SUM(amount) amount FROM sales WHERE sale_date BETWEEN $4 AND $5 GROUP BY salesperson_name) month_sales ON month_sales.salesperson_name=sp.name
     ${where}
     ORDER BY "完成率" DESC, "今日销售金额" DESC
   `, params);
 }
 
-async function productStats(period, selected, keyword, keyOnly) {
+async function productStats(period, selected, keyword, keyOnly, startDate = "", endDate = "") {
   let start = selected, end = selected;
-  if (period === "month") start = monthStart(selected);
-  if (period === "week") {
+  if (startDate || endDate) {
+    start = startDate || selected;
+    end = endDate || selected;
+  } else if (period === "month") start = monthStart(selected);
+  else if (period === "week") {
     const d = new Date(selected);
     const day = d.getDay() || 7;
     d.setDate(d.getDate() - day + 1);
@@ -339,9 +344,11 @@ async function productStats(period, selected, keyword, keyOnly) {
   return rows.map((row, index) => ({ ...row, "排名": index + 1 }));
 }
 
-async function goldRank(month, selected, salesperson) {
+async function goldRank(month, selected, salesperson, startDate = "", endDate = "") {
   const days = monthDays(month);
-  const params = [selected, `${month}-01`, selected];
+  const rangeStart = startDate || selected;
+  const rangeEnd = endDate || selected;
+  const params = [rangeStart, rangeEnd, `${month}-01`, selected];
   let where = "";
   if (salesperson) {
     params.push(salesperson);
@@ -364,12 +371,12 @@ async function goldRank(month, selected, salesperson) {
     LEFT JOIN (
       SELECT s.salesperson_name, SUM(s.quantity) qty FROM sales s
       JOIN products p ON p.code=s.product_code AND p.is_key=1 AND COALESCE(p.status,'启用')='启用'
-      WHERE s.sale_date=$1 GROUP BY s.salesperson_name
+      WHERE s.sale_date BETWEEN $1 AND $2 GROUP BY s.salesperson_name
     ) day_sales ON day_sales.salesperson_name=sp.name
     LEFT JOIN (
       SELECT s.salesperson_name, SUM(s.quantity) qty FROM sales s
       JOIN products p ON p.code=s.product_code AND p.is_key=1 AND COALESCE(p.status,'启用')='启用'
-      WHERE s.sale_date BETWEEN $2 AND $3 GROUP BY s.salesperson_name
+      WHERE s.sale_date BETWEEN $3 AND $4 GROUP BY s.salesperson_name
     ) month_sales ON month_sales.salesperson_name=sp.name
     ${where}
     ORDER BY "今日完成率" DESC, "累计完成率" DESC
@@ -734,9 +741,9 @@ async function main(req, res) {
     if (req.method === "POST" && path === "/clear-sales-data") return clearSalesData(res);
     if (req.method === "POST" && path === "/reinitialize-database") return reinitializeDatabase(res);
     if (req.method === "GET" && path === "/dashboard") return apiDashboard(req, res, url);
-    if (req.method === "GET" && path === "/sales-ranking") return json(res, 200, await salesRank(url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || ""));
-    if (req.method === "GET" && path === "/gold-rank") return json(res, 200, await goldRank(url.searchParams.get("month") || new Date().toISOString().slice(0, 7), url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || ""));
-    if (req.method === "GET" && path === "/product-stats") return json(res, 200, await productStats(url.searchParams.get("period") || "day", url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("product") || "", url.searchParams.get("keyOnly") || ""));
+    if (req.method === "GET" && path === "/sales-ranking") return json(res, 200, await salesRank(url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || "", url.searchParams.get("startDate") || "", url.searchParams.get("endDate") || ""));
+    if (req.method === "GET" && path === "/gold-rank") return json(res, 200, await goldRank(url.searchParams.get("month") || new Date().toISOString().slice(0, 7), url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || "", url.searchParams.get("startDate") || "", url.searchParams.get("endDate") || ""));
+    if (req.method === "GET" && path === "/product-stats") return json(res, 200, await productStats(url.searchParams.get("period") || "day", url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("product") || "", url.searchParams.get("keyOnly") || "", url.searchParams.get("startDate") || "", url.searchParams.get("endDate") || ""));
     if (req.method === "GET" && path === "/maintenance") return json(res, 200, await maintenanceData());
     if (req.method === "POST" && path === "/maintenance") return saveMaintenance(req, res);
     if (req.method === "POST" && path === "/pending/action") return pendingAction(req, res);
@@ -771,15 +778,15 @@ async function main(req, res) {
     if (req.method === "GET" && path.startsWith("/export/")) {
       const name = path.split("/").pop();
       if (name === "sales-ranking") {
-        const rows = await salesRank(url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || "");
+        const rows = await salesRank(url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || "", url.searchParams.get("startDate") || "", url.searchParams.get("endDate") || "");
         return xlsxResponse(res, "业务销售排行.xlsx", ["业务员", "今日销售金额", "本月销售金额", "巅峰目标", "每日目标", "完成率"], rows);
       }
       if (name === "products") {
-        const rows = await productStats(url.searchParams.get("period") || "day", url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("product") || "", url.searchParams.get("keyOnly") || "");
+        const rows = await productStats(url.searchParams.get("period") || "day", url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("product") || "", url.searchParams.get("keyOnly") || "", url.searchParams.get("startDate") || "", url.searchParams.get("endDate") || "");
         return xlsxResponse(res, "商品销售统计.xlsx", ["排名", "商品编码", "商品名称", "销售数量", "销售金额", "销售业务员数"], rows);
       }
       if (name === "gold-rank") {
-        const rows = await goldRank(url.searchParams.get("month") || new Date().toISOString().slice(0, 7), url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || "");
+        const rows = await goldRank(url.searchParams.get("month") || new Date().toISOString().slice(0, 7), url.searchParams.get("date") || new Date().toISOString().slice(0, 10), url.searchParams.get("salesperson") || "", url.searchParams.get("startDate") || "", url.searchParams.get("endDate") || "");
         return xlsxResponse(res, "金砖商品完成率排行.xlsx", ["业务员", "金砖商品目标", "金砖商品每日目标", "每日完成件数", "今日完成率", "累计完成", "累计完成率"], rows);
       }
     }

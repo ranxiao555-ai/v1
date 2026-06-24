@@ -111,6 +111,10 @@ button, .link-btn {
 button:hover, .link-btn:hover { background: var(--primary-dark); }
 button.danger { background: var(--danger); }
 button.danger:hover { background: #b91c1c; }
+button:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
 
 .check {
   display: inline-flex;
@@ -186,6 +190,34 @@ th, td {
 th {
   background: #eef3fb;
   font-weight: 700;
+}
+
+.filter-row th {
+  background: #f8fbff;
+  padding: 6px;
+}
+
+.column-filter {
+  width: 100%;
+  min-width: 92px;
+  height: 30px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.table-meta {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  color: var(--muted);
 }
 
 tbody tr:hover { background: #f8fbff; }

@@ -8,6 +8,18 @@ const tableHeaders = {
   tasks: ["月份", "业务员", "商品编码", "商品名称", "当日销量", "月累计销量", "月任务数量", "完成率", "剩余任务数量", "是否达标"],
   taskRank: ["业务员", "金砖商品目标", "金砖商品每日目标", "每日完成件数", "今日完成率", "累计完成", "累计完成率"]
 };
+const PAGE_SIZE = 50;
+const tableStates = {};
+const editTableStates = {};
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function fmtNumber(value) {
   const num = Number(value || 0);
@@ -21,7 +33,7 @@ function fmtCell(header, value) {
     return `<span class="tag ${cls}">${value}</span>`;
   }
   if (typeof value === "number") return fmtNumber(value);
-  return value ?? "";
+  return escapeHtml(value ?? "");
 }
 
 async function api(url, options) {
@@ -40,14 +52,62 @@ async function api(url, options) {
   return contentType.includes("json") ? res.json() : res.blob();
 }
 
+function rawCellText(row, header) {
+  const value = row[header];
+  if (header.includes("完成率")) return `${(Number(value || 0) * 100).toFixed(1)}%`;
+  return String(value ?? "");
+}
+
 function renderTable(el, headers, rows) {
+  if (!el) return;
+  const id = el.id || `table-${Math.random().toString(36).slice(2)}`;
+  if (!el.id) el.id = id;
+  const state = tableStates[id] || { page: 1, filters: {} };
+  tableStates[id] = state;
   if (!rows || rows.length === 0) {
     el.innerHTML = '<div class="empty">暂无数据</div>';
     return;
   }
-  const head = headers.map((h) => `<th>${h}</th>`).join("");
-  const body = rows.map((row) => `<tr>${headers.map((h) => `<td>${fmtCell(h, row[h])}</td>`).join("")}</tr>`).join("");
-  el.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  const filtered = rows.filter((row) => headers.every((header) => {
+    const keyword = String(state.filters[header] || "").trim().toLowerCase();
+    if (!keyword) return true;
+    return rawCellText(row, header).toLowerCase().includes(keyword);
+  }));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  state.page = Math.min(Math.max(1, state.page || 1), pageCount);
+  const start = (state.page - 1) * PAGE_SIZE;
+  const pageRows = filtered.slice(start, start + PAGE_SIZE);
+  const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+  const search = headers.map((h) => `<th><input class="column-filter" data-field-filter="${escapeHtml(h)}" placeholder="搜索${escapeHtml(h)}" value="${escapeHtml(state.filters[h] || "")}"></th>`).join("");
+  const body = pageRows.map((row) => `<tr>${headers.map((h) => `<td>${fmtCell(h, row[h])}</td>`).join("")}</tr>`).join("");
+  const from = filtered.length ? start + 1 : 0;
+  const to = Math.min(start + PAGE_SIZE, filtered.length);
+  el.innerHTML = `
+    <div class="table-meta">共 ${filtered.length} 条，显示 ${from}-${to} 条，每页最多 ${PAGE_SIZE} 条</div>
+    <table><thead><tr>${head}</tr><tr class="filter-row">${search}</tr></thead><tbody>${body || `<tr><td colspan="${headers.length}"><div class="empty">暂无匹配数据</div></td></tr>`}</tbody></table>
+    <div class="pager">
+      <button data-page-prev ${state.page <= 1 ? "disabled" : ""}>上一页</button>
+      <span>第 ${state.page} / ${pageCount} 页</span>
+      <button data-page-next ${state.page >= pageCount ? "disabled" : ""}>下一页</button>
+    </div>
+  `;
+  el.querySelectorAll("[data-field-filter]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const field = input.dataset.fieldFilter;
+      state.filters[field] = input.value;
+      state.page = 1;
+      renderTable(el, headers, rows);
+      const nextInput = el.querySelector(`[data-field-filter="${CSS.escape(field)}"]`);
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.setSelectionRange(nextInput.value.length, nextInput.value.length);
+      }
+    });
+  });
+  const prev = el.querySelector("[data-page-prev]");
+  const next = el.querySelector("[data-page-next]");
+  if (prev) prev.addEventListener("click", () => { state.page -= 1; renderTable(el, headers, rows); });
+  if (next) next.addEventListener("click", () => { state.page += 1; renderTable(el, headers, rows); });
 }
 
 function params(obj) {
@@ -101,12 +161,14 @@ async function loadDashboard() {
 }
 
 async function loadSalespeople() {
-  const q = params({ date: $("spDate").value, salesperson: $("spName").value.trim() });
+  const endDate = $("spEndDate").value || today;
+  const q = params({ date: endDate, startDate: $("spStartDate").value, endDate, salesperson: $("spName").value.trim() });
   renderTable($("spTable"), tableHeaders.salespeople, await api(`/api/sales-ranking?${q}`));
 }
 
 async function loadProducts() {
-  const q = params({ period: $("pdPeriod").value, date: $("pdDate").value, product: $("pdKeyword").value.trim(), keyOnly: $("pdKeyOnly").checked ? "1" : "" });
+  const endDate = $("pdEndDate").value || today;
+  const q = params({ period: $("pdPeriod").value, date: endDate, startDate: $("pdStartDate").value, endDate, product: $("pdKeyword").value.trim(), keyOnly: $("pdKeyOnly").checked ? "1" : "" });
   renderTable($("pdTable"), tableHeaders.products, await api(`/api/product-stats?${q}`));
 }
 
@@ -158,9 +220,12 @@ async function runDatabaseAction(action) {
 }
 
 function taskQuery() {
+  const endDate = $("taskEndDate").value || today;
   return params({
     month: $("taskMonth").value,
-    date: $("taskDate").value,
+    date: endDate,
+    startDate: $("taskStartDate").value,
+    endDate,
     salesperson: $("taskSalesperson").value.trim()
   });
 }
@@ -215,7 +280,15 @@ function editShell(id, table, headers, rowsHtml) {
       <span class="hint">可拖拽 Excel 到此区域导入</span>
     </div>
     <div class="result" data-import-result="${table}"></div>
-    <table class="edit-table"><thead><tr><th>选择</th>${headers.map((h) => `<th>${h}</th>`).join("")}<th>操作</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    <div class="table-meta" data-edit-meta></div>
+    <table class="edit-table">
+      <thead>
+        <tr><th>选择</th>${headers.map((h) => `<th>${h}</th>`).join("")}<th>操作</th></tr>
+        <tr class="filter-row"><th></th>${headers.map((h, i) => `<th><input class="column-filter" data-edit-filter="${i}" placeholder="搜索${escapeHtml(h)}"></th>`).join("")}<th></th></tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <div class="pager" data-edit-pager></div>
   `;
   $(id).querySelector(`[data-add5="${table}"]`).addEventListener("click", () => addEditRowsIn(id, table, 5));
   $(id).querySelector(`[data-save="${table}"]`).addEventListener("click", () => saveEditTableFrom(id, table));
@@ -230,7 +303,66 @@ function editShell(id, table, headers, rowsHtml) {
     dropZone.classList.remove("dragging");
     importMaintenanceTo(id, table, e.dataTransfer.files[0]);
   });
-  $(id).querySelectorAll("[data-remove]").forEach((btn) => btn.addEventListener("click", () => btn.closest("tr").remove()));
+  $(id).querySelectorAll("[data-remove]").forEach((btn) => btn.addEventListener("click", () => {
+    btn.closest("tr").remove();
+    applyEditTableFilters(id);
+  }));
+  $(id).querySelectorAll("[data-edit-filter]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const state = editTableStates[id] || { page: 1, filters: {} };
+      state.filters[input.dataset.editFilter] = input.value;
+      state.page = 1;
+      editTableStates[id] = state;
+      applyEditTableFilters(id);
+      const nextInput = $(id).querySelector(`[data-edit-filter="${input.dataset.editFilter}"]`);
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.setSelectionRange(nextInput.value.length, nextInput.value.length);
+      }
+    });
+  });
+  applyEditTableFilters(id);
+}
+
+function editCellText(tr, index) {
+  const td = tr.children[index + 1];
+  if (!td) return "";
+  const field = td.querySelector("input, select");
+  return field ? field.value : td.textContent;
+}
+
+function applyEditTableFilters(panelId) {
+  const panel = $(panelId);
+  if (!panel) return;
+  const state = editTableStates[panelId] || { page: 1, filters: {} };
+  editTableStates[panelId] = state;
+  const rows = Array.from(panel.querySelectorAll("tbody tr"));
+  const filtered = rows.filter((tr) => Object.entries(state.filters).every(([index, keyword]) => {
+    const value = String(keyword || "").trim().toLowerCase();
+    if (!value) return true;
+    return editCellText(tr, Number(index)).toLowerCase().includes(value);
+  }));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  state.page = Math.min(Math.max(1, state.page || 1), pageCount);
+  const start = (state.page - 1) * PAGE_SIZE;
+  const visible = new Set(filtered.slice(start, start + PAGE_SIZE));
+  rows.forEach((tr) => {
+    tr.style.display = visible.has(tr) ? "" : "none";
+  });
+  const meta = panel.querySelector("[data-edit-meta]");
+  const pager = panel.querySelector("[data-edit-pager]");
+  const from = filtered.length ? start + 1 : 0;
+  const to = Math.min(start + PAGE_SIZE, filtered.length);
+  if (meta) meta.textContent = `共 ${filtered.length} 条，显示 ${from}-${to} 条，每页最多 ${PAGE_SIZE} 条`;
+  if (pager) {
+    pager.innerHTML = `
+      <button data-edit-prev ${state.page <= 1 ? "disabled" : ""}>上一页</button>
+      <span>第 ${state.page} / ${pageCount} 页</span>
+      <button data-edit-next ${state.page >= pageCount ? "disabled" : ""}>下一页</button>
+    `;
+    pager.querySelector("[data-edit-prev]")?.addEventListener("click", () => { state.page -= 1; applyEditTableFilters(panelId); });
+    pager.querySelector("[data-edit-next]")?.addEventListener("click", () => { state.page += 1; applyEditTableFilters(panelId); });
+  }
 }
 
 function renderSalespeopleEdit(rows) {
@@ -354,8 +486,12 @@ function addEditRowsIn(panel, table, count = 1) {
   const map = { salespeople: salespeopleRow, products: productsRow, salesTargets: salesTargetsRow, goldProducts: goldTargetsRow };
   for (let i = 0; i < count; i += 1) {
     $(panel).querySelector("tbody").insertAdjacentHTML("beforeend", map[table]({}));
-    $(panel).querySelector("tbody tr:last-child [data-remove]").addEventListener("click", (e) => e.target.closest("tr").remove());
+    $(panel).querySelector("tbody tr:last-child [data-remove]").addEventListener("click", (e) => {
+      e.target.closest("tr").remove();
+      applyEditTableFilters(panel);
+    });
   }
+  applyEditTableFilters(panel);
 }
 
 function addEditRows(table, count = 1) {
@@ -370,6 +506,7 @@ function deleteSelectedRows(panelId) {
   }
   if (!confirm(`确认删除选中的 ${rows.length} 行？删除后需要点击“保存”才会写入数据库。`)) return;
   rows.forEach((tr) => tr.remove());
+  applyEditTableFilters(panelId);
 }
 
 async function importMaintenanceTo(panel, table, file) {
@@ -416,9 +553,12 @@ async function saveEditTable(table) {
 
 function initEvents() {
   $("dashDate").value = today;
-  $("spDate").value = today;
-  $("pdDate").value = today;
-  $("taskDate").value = today;
+  $("spStartDate").value = today;
+  $("spEndDate").value = today;
+  $("pdStartDate").value = today;
+  $("pdEndDate").value = today;
+  $("taskStartDate").value = today;
+  $("taskEndDate").value = today;
   $("taskMonth").value = month;
 
   $("dashDate").addEventListener("change", loadDashboard);
@@ -430,8 +570,8 @@ function initEvents() {
   $("clearSalesData").addEventListener("click", () => runDatabaseAction("clear"));
   $("reinitDatabase").addEventListener("click", () => runDatabaseAction("reinit"));
 
-  $("spExport").addEventListener("click", () => download(`/api/export/sales-ranking?${params({ date: $("spDate").value, salesperson: $("spName").value.trim() })}`));
-  $("pdExport").addEventListener("click", () => download(`/api/export/products?${params({ period: $("pdPeriod").value, date: $("pdDate").value, product: $("pdKeyword").value.trim(), keyOnly: $("pdKeyOnly").checked ? "1" : "" })}`));
+  $("spExport").addEventListener("click", () => download(`/api/export/sales-ranking?${params({ date: $("spEndDate").value || today, startDate: $("spStartDate").value, endDate: $("spEndDate").value, salesperson: $("spName").value.trim() })}`));
+  $("pdExport").addEventListener("click", () => download(`/api/export/products?${params({ period: $("pdPeriod").value, date: $("pdEndDate").value || today, startDate: $("pdStartDate").value, endDate: $("pdEndDate").value, product: $("pdKeyword").value.trim(), keyOnly: $("pdKeyOnly").checked ? "1" : "" })}`));
   $("taskExport").addEventListener("click", () => download(`/api/export/gold-rank?${taskQuery()}`));
 
   $("resetDemo").addEventListener("click", async () => {
